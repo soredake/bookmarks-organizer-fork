@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Es wird versucht, Links derselben Domain nicht direkt nacheinander zu prüfen."
+  },
+  "option_load_favicons": {
+    "message": "Favicons in Firefox laden"
+  },
+  "option_load_favicons_description": {
+    "message": "Wenn diese Option aktiviert ist, werden Lesezeichen während der Prüfung in inaktiven Tabs geöffnet, damit Firefox ihre Favicons speichern kann. Dadurch können Einträge im Browserverlauf entstehen."
   }
 }

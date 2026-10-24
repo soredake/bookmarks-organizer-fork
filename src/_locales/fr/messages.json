@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Évite autant que possible de vérifier à la suite des liens du même domaine."
+  },
+  "option_load_favicons": {
+    "message": "Charger les favicons dans Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "Lorsque cette option est activée, les vérifications ouvrent les marque-pages dans des onglets inactifs afin que Firefox puisse enregistrer leurs favicons. Cela peut ajouter des entrées à l’historique de navigation."
   }
 }

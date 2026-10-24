@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Se intentará no comprobar seguidos enlaces del mismo dominio."
+  },
+  "option_load_favicons": {
+    "message": "Cargar favicons en Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "Al activar esta opción, las comprobaciones visitan los marcadores en pestañas inactivas para que Firefox guarde sus favicons. Esto puede añadir entradas al historial de navegación."
   }
 }

@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Probeert links van hetzelfde domein niet direct na elkaar te controleren."
+  },
+  "option_load_favicons": {
+    "message": "Favicons laden in Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "Als deze optie is ingeschakeld, openen controles bladwijzers in inactieve tabbladen zodat Firefox hun favicons kan opslaan. Dit kan items aan de browsegeschiedenis toevoegen."
   }
 }

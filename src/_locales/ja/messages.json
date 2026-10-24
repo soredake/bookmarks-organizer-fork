@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "同じドメインのリンクが連続しないように並べ替えます。"
+  },
+  "option_load_favicons": {
+    "message": "Firefox にファビコンを読み込む"
+  },
+  "option_load_favicons_description": {
+    "message": "有効にすると、チェック時にブックマークを非アクティブなタブで開き、Firefox がファビコンを保存できるようにします。閲覧履歴に記録が追加される場合があります。"
   }
 }

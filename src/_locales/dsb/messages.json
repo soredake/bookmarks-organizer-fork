@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Wopytajśo se, wótkaze z togo samskego domena njedirekt za sobu kontrolěrowaś."
+  },
+  "option_load_favicons": {
+    "message": "Fawikony do Firefoxu začitaś"
+  },
+  "option_load_favicons_description": {
+    "message": "Jolic jo toś ta nastajenja zmóžnjone, se wótkaze za kontrolu w njewěcejich rajtach wócynjaju, aby Firefox mógł jich fawikony składowaś. To móžo zapiski w historiji pśeglědowanja napóraś."
   }
 }

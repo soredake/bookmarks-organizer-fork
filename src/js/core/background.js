@@ -15,6 +15,8 @@ const HTTP_FORBIDDEN_STATUS = 403;
 const HTTP_TOO_MANY_REQUESTS_STATUS = 429;
 const HTTP_SERVICE_UNAVAILABLE_STATUS = 503;
 const DEFAULT_REQUEST_DELAY_IN_SECONDS = 1;
+const FAVICON_TAB_LOAD_TIMEOUT_IN_MS = 15000;
+const FAVICON_TAB_CONCURRENCY = 2;
 const MILLISECONDS_PER_SECOND = 1000;
 const FLARESOLVERR_MAX_CONCURRENT_REQUESTS = 2;
 const REQUEST_TIMEOUT_WATCHDOG_PREFIX = 'bookmarks-organizer-request-timeout-';
@@ -106,6 +108,15 @@ const bookmarksorganizer = {
 
   /** @type {boolean} */
   showRequestResults : false,
+
+  /** @type {boolean} */
+  loadFavicons : false,
+
+  /** @type {Set<number>} */
+  activeFaviconTabIds : new Set(),
+
+  /** @type {?string} */
+  faviconLoadingCheckId : null,
 
   /** @type {boolean} */
   shuffleUrls : false,
@@ -574,6 +585,7 @@ const bookmarksorganizer = {
       bookmarksorganizer.directRequestWaiters = [];
       bookmarksorganizer.activeRequestCancellations.forEach((cancelRequest) => cancelRequest());
       bookmarksorganizer.activeControllers.forEach((controller) => controller.abort());
+      await bookmarksorganizer.closeActiveFaviconTabs();
 
       // Finalize the visible results directly from the stop message handler.
       // Do not rely on every in-flight request promise unwinding: a stalled
@@ -681,6 +693,8 @@ const bookmarksorganizer = {
    */
   // eslint-disable-next-line complexity
   async execute (mode, type) {
+    bookmarksorganizer.faviconLoadingCheckId = null;
+    void bookmarksorganizer.closeActiveFaviconTabs();
     bookmarksorganizer.inProgress = true;
     bookmarksorganizer.stopRequested = false;
     bookmarksorganizer.checkFinalized = false;
@@ -710,6 +724,7 @@ const bookmarksorganizer = {
     bookmarksorganizer.mode = mode;
     bookmarksorganizer.type = type;
     bookmarksorganizer.checkId = `${Date.now()}-${++bookmarksorganizer.checkSequence}`;
+    bookmarksorganizer.faviconLoadingCheckId = bookmarksorganizer.checkId;
 
     try {
       await browser.storage.session.remove(FLARESOLVERR_JSON_ERRORS_SESSION_KEY);
@@ -749,7 +764,8 @@ const bookmarksorganizer = {
       useFlareSolverr : false,
       flareSolverrUrl : 'http://localhost:8191/v1',
       showFlareSolverrResult : true,
-      shuffleUrls : true
+      shuffleUrls : true,
+      loadFavicons : false
     });
 
     // eslint-disable-next-line require-atomic-updates
@@ -774,6 +790,8 @@ const bookmarksorganizer = {
     bookmarksorganizer.showRequestResults = options.showFlareSolverrResult === true;
     // eslint-disable-next-line require-atomic-updates
     bookmarksorganizer.shuffleUrls = options.shuffleUrls === true;
+    // eslint-disable-next-line require-atomic-updates
+    bookmarksorganizer.loadFavicons = options.loadFavicons === true;
     try {
       const flareSolverrUrl = new URL(options.flareSolverrUrl);
       if ((flareSolverrUrl.protocol === 'http:' || flareSolverrUrl.protocol === 'https:') && !flareSolverrUrl.username && !flareSolverrUrl.password) {
@@ -827,6 +845,10 @@ const bookmarksorganizer = {
     // eslint-disable-next-line require-atomic-updates
     bookmarksorganizer.lastRequestStartedAt = { direct : 0, flareSolverr : 0 };
 
+    if (bookmarksorganizer.loadFavicons) {
+      void bookmarksorganizer.loadBookmarkFavicons(bookmarksorganizer.collectedBookmarks, bookmarksorganizer.checkId);
+    }
+
     switch (mode) {
       case 'broken-bookmarks':
         await bookmarksorganizer.processBookmarks(mode, type);
@@ -878,6 +900,193 @@ const bookmarksorganizer = {
     if (mode !== 'duplicates') {
       await bookmarksorganizer.finishCheck(mode);
     }
+  },
+
+  /**
+   * Loads bookmark pages in inactive tabs so Firefox can cache their favicons.
+   *
+   * @param {Array.<bookmarks.BookmarkTreeNode>} bookmarks - the bookmarks to visit
+   * @param {string} checkId - the current check identifier
+   *
+   * @returns {Promise<void>} - resolves after favicon loading has stopped
+   */
+  async loadBookmarkFavicons (bookmarks, checkId) {
+    const urls = [
+      ...new Set(
+        bookmarks
+          .filter((bookmark) => bookmark.url)
+          .map((bookmark) => bookmark.url)
+          .filter((url) => {
+            try {
+              const parsedUrl = new URL(url);
+
+              return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+            }
+            catch (error) {
+              return false;
+            }
+          })
+      )
+    ];
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (!bookmarksorganizer.stopRequested && bookmarksorganizer.faviconLoadingCheckId === checkId) {
+        const url = urls[nextIndex++];
+        if (!url) {
+          return;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await bookmarksorganizer.loadBookmarkFavicon(url, checkId);
+      }
+    };
+
+    try {
+      await Promise.all(Array.from(
+        { length : Math.min(FAVICON_TAB_CONCURRENCY, urls.length) },
+        () => worker()
+      ));
+    }
+    catch (error) {
+      bookmarksorganizer.logFaviconLoadingError('Unable to load bookmark favicons', error);
+    }
+  },
+
+  /**
+   * Opens and closes an inactive tab after its page has loaded or timed out.
+   *
+   * @param {string} url - the bookmark URL to visit
+   * @param {string} checkId - the current check identifier
+   *
+   * @returns {Promise<void>} - resolves after the tab is closed
+   */
+  async loadBookmarkFavicon (url, checkId) {
+    let tab = null;
+    try {
+      tab = await browser.tabs.create({ url : url, active : false });
+    }
+    catch (error) {
+      bookmarksorganizer.logFaviconLoadingError(`Unable to open bookmark for favicon loading: ${url}`, error);
+
+      return;
+    }
+
+    if (!Number.isInteger(tab.id)) {
+      bookmarksorganizer.logFaviconLoadingError(`Firefox did not return a tab ID for favicon loading: ${url}`, null);
+
+      return;
+    }
+
+    const tabId = tab.id;
+    if (bookmarksorganizer.stopRequested || bookmarksorganizer.faviconLoadingCheckId !== checkId) {
+      try {
+        await browser.tabs.remove(tabId);
+      }
+      catch (error) {
+        bookmarksorganizer.logFaviconLoadingError(`Unable to close stale favicon-loading tab for ${url}`, error);
+      }
+
+      return;
+    }
+
+    bookmarksorganizer.activeFaviconTabIds.add(tabId);
+
+    let resolveLoading = null;
+    let timeoutId = null;
+    let onUpdated = null;
+    let onRemoved = null;
+    const loadingFinished = new Promise((resolve) => {
+      resolveLoading = resolve;
+    });
+    let finished = false;
+    const cleanup = async (removeTab = true) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      clearTimeout(timeoutId);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      browser.tabs.onRemoved.removeListener(onRemoved);
+      bookmarksorganizer.activeFaviconTabIds.delete(tabId);
+
+      if (removeTab) {
+        try {
+          await browser.tabs.remove(tabId);
+        }
+        catch (error) {
+          bookmarksorganizer.logFaviconLoadingError(`Unable to close favicon-loading tab for ${url}`, error);
+        }
+      }
+
+      resolveLoading();
+    };
+    onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        void cleanup();
+      }
+    };
+    onRemoved = (removedTabId) => {
+      if (removedTabId === tabId) {
+        void cleanup(false);
+      }
+    };
+    timeoutId = setTimeout(() => {
+      void cleanup();
+    }, FAVICON_TAB_LOAD_TIMEOUT_IN_MS);
+
+    browser.tabs.onUpdated.addListener(onUpdated);
+    browser.tabs.onRemoved.addListener(onRemoved);
+
+    if (tab.status === 'complete') {
+      await cleanup();
+    }
+    else {
+      try {
+        const currentTab = await browser.tabs.get(tabId);
+        if (currentTab.status === 'complete') {
+          await cleanup();
+        }
+      }
+      catch (error) {
+        if (!finished) {
+          bookmarksorganizer.logFaviconLoadingError(`Unable to check favicon-loading tab for ${url}`, error);
+          await cleanup();
+        }
+      }
+    }
+
+    await loadingFinished;
+  },
+
+  /**
+   * Closes any tabs currently being used to load bookmark favicons.
+   *
+   * @returns {Promise<void>} - resolves after active favicon tabs are closed
+   */
+  async closeActiveFaviconTabs () {
+    const activeTabIds = [...bookmarksorganizer.activeFaviconTabIds];
+    await Promise.all(activeTabIds.map(async (tabId) => {
+      try {
+        await browser.tabs.remove(tabId);
+      }
+      catch (error) {
+        bookmarksorganizer.logFaviconLoadingError(`Unable to close favicon-loading tab ${tabId}`, error);
+      }
+    }));
+  },
+
+  /**
+   * Reports errors encountered while loading bookmark favicons.
+   *
+   * @param {string} message - the error message
+   * @param {?Error} error - the error details, if available
+   *
+   * @returns {void}
+   */
+  logFaviconLoadingError (message, error) {
+    // eslint-disable-next-line no-console
+    console.error(message, error);
   },
 
   /**

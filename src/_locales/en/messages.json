@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Try to avoid checking links from the same domain consecutively."
+  },
+  "option_load_favicons": {
+    "message": "Load favicons into Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "When enabled, checks visit bookmarks in inactive tabs so Firefox can cache their favicons. This may add entries to browsing history."
   }
 }

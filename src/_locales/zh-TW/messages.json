@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "盡量避免連續檢查來自同一網域的連結。"
+  },
+  "option_load_favicons": {
+    "message": "將網站圖示載入 Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "啟用後，檢查會在非作用中的分頁中造訪書籤，讓 Firefox 快取其網站圖示。這可能會在瀏覽記錄中新增項目。"
   }
 }

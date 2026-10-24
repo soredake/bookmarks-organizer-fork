@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Försöker undvika att kontrollera länkar från samma domän direkt efter varandra."
+  },
+  "option_load_favicons": {
+    "message": "Läs in favikoner i Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "När alternativet är aktiverat öppnar kontroller bokmärken i inaktiva flikar så att Firefox kan spara deras favikoner. Det kan lägga till poster i webbhistoriken."
   }
 }

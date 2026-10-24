@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Cerca di non controllare consecutivamente link dello stesso dominio."
+  },
+  "option_load_favicons": {
+    "message": "Carica le favicon in Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "Quando è attiva, la verifica apre i segnalibri in schede inattive affinché Firefox possa memorizzarne le favicon. Questo può aggiungere voci alla cronologia di navigazione."
   }
 }

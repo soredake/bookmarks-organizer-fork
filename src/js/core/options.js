@@ -18,6 +18,7 @@ const elDirectFallbackFlareSolverrJsonError = document.getElementById('direct-fa
 const elFlareSolverrUrl = document.getElementById('flaresolverr-url');
 const elShowFlareSolverrResult = document.getElementById('show-flaresolverr-result');
 const elShuffleUrls = document.getElementById('shuffle-urls');
+const elLoadFavicons = document.getElementById('load-favicons');
 const elResetWhitelistBtn = document.getElementById('reset-whitelist');
 const elResetCloudflareListBtn = document.getElementById('reset-cloudflare-list');
 const elReturnBtn = document.getElementById('return-button');
@@ -60,7 +61,8 @@ const options = {
       directFallbackFlareSolverrJsonError : false,
       flareSolverrUrl : DEFAULT_FLARESOLVERR_URL,
       showFlareSolverrResult : true,
-      shuffleUrls : true
+      shuffleUrls : true,
+      loadFavicons : false
     });
 
     elDebugMode.checked = option.debugEnabled;
@@ -98,6 +100,7 @@ const options = {
     elShowFlareSolverrResult.checked = option.showFlareSolverrResult;
     options.setFlareSolverrOptionsEnabled(option.useFlareSolverr);
     elShuffleUrls.checked = option.shuffleUrls;
+    elLoadFavicons.checked = option.loadFavicons === true;
   }
 };
 
@@ -188,6 +191,10 @@ elShowFlareSolverrResult.addEventListener('change', (e) => {
 
 elShuffleUrls.addEventListener('change', (e) => {
   browser.storage.local.set({ shuffleUrls : e.target.checked });
+});
+
+elLoadFavicons.addEventListener('change', (e) => {
+  browser.storage.local.set({ loadFavicons : e.target.checked });
 });
 
 elFlareSolverrUrl.addEventListener('change', (e) => {

@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Spytajće so wotkazow ze samsneho domena njedirektnje za sobu přepruwować."
+  },
+  "option_load_favicons": {
+    "message": "Favikony do Firefoxy začitać"
+  },
+  "option_load_favicons_description": {
+    "message": "Hdyž je tuta opcija zmóžnjena, přepruwowanja wotkazowe znamjenja w njewědomych rajtach wotewrěja, zo by Firefox móhł jich favikony składować. To móže zapiski do přehladowanskeje historije přidać."
   }
 }

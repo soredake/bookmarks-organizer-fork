@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "尽量避免连续检查来自同一域名的链接。"
+  },
+  "option_load_favicons": {
+    "message": "将网站图标加载到 Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "启用后，检查会在非活动标签页中访问书签，以便 Firefox 缓存其网站图标。这可能会在浏览历史中添加记录。"
   }
 }

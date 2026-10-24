@@ -54,6 +54,8 @@ higher is required for the latest version of Bookmarks Organizer).**
   from direct requests. The Stop button cancels active and queued work and displays the results collected so far.
 - **Interface behavior:** Settings open in a new tab so completed scan results remain open in the main tab. Fork-specific
   settings and status messages are translated across all supported locales.
+- **Optional favicon loading:** When enabled in settings, checks visit bookmarks in inactive tabs so Firefox can cache
+  their favicons. This is disabled by default and may add entries to browsing history.
 
 ### Shortcuts
 

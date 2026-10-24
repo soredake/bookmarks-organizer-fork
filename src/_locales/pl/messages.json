@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Staraj się nie sprawdzać kolejno linków z tej samej domeny."
+  },
+  "option_load_favicons": {
+    "message": "Wczytuj favikony do Firefoksa"
+  },
+  "option_load_favicons_description": {
+    "message": "Po włączeniu tej opcji sprawdzanie otwiera zakładki w nieaktywnych kartach, aby Firefox mógł zapisać ich favikony. Może to dodać wpisy do historii przeglądania."
   }
 }

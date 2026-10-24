@@ -64,6 +64,16 @@
           </label>
           <div class="description" data-i18n="option_shuffle_urls_description">Try to avoid checking links from the same domain consecutively.</div>
         </div>
+        <div class="form-group option-checkbox">
+          <label for="load-favicons">
+            <input id="load-favicons" type="checkbox" name="load_favicons" />
+            <span data-i18n="option_load_favicons">Load favicons into Firefox</span>
+          </label>
+          <div class="description" data-i18n="option_load_favicons_description">
+            When enabled, checks visit bookmarks in inactive tabs so Firefox can cache their favicons. This may add
+            entries to browsing history.
+          </div>
+        </div>
         <div class="form-group">
           <label for="request-timeout-direct"><span data-i18n="option_request_timeout_direct">Request timeout (direct)</span></label>
           <input id="request-timeout-direct" type="number" name="request_timeout_direct" min="1" step="1" />

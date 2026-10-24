@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Pokusit se nekontrolovat odkazy ze stejné domény po sobě."
+  },
+  "option_load_favicons": {
+    "message": "Načítat favikony do Firefoxu"
+  },
+  "option_load_favicons_description": {
+    "message": "Je-li tato možnost zapnutá, kontroly otevřou záložky na pozadí, aby Firefox mohl uložit jejich favikony. Do historie prohlížení mohou být přidány záznamy."
   }
 }

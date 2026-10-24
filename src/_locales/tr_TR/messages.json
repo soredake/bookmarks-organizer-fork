@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Aynı alan adındaki bağlantıları art arda denetlemekten kaçınmaya çalışır."
+  },
+  "option_load_favicons": {
+    "message": "Firefox'a site simgelerini yükle"
+  },
+  "option_load_favicons_description": {
+    "message": "Etkinleştirildiğinde denetimler, Firefox'un site simgelerini kaydedebilmesi için yer imlerini etkin olmayan sekmelerde açar. Bu işlem tarama geçmişine kayıt ekleyebilir."
   }
 }

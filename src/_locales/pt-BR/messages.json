@@ -265,5 +265,11 @@
   },
   "option_shuffle_urls_description": {
     "message": "Tenta evitar a verificação consecutiva de links do mesmo domínio."
+  },
+  "option_load_favicons": {
+    "message": "Carregar favicons no Firefox"
+  },
+  "option_load_favicons_description": {
+    "message": "Quando ativada, a verificação abre os favoritos em abas inativas para que o Firefox possa armazenar seus favicons. Isso pode adicionar entradas ao histórico de navegação."
   }
 }
