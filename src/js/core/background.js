@@ -17,7 +17,6 @@ const HTTP_SERVICE_UNAVAILABLE_STATUS = 503;
 const DEFAULT_REQUEST_DELAY_IN_SECONDS = 1;
 const FAVICON_TAB_LOAD_TIMEOUT_IN_MS = 15000;
 const FAVICON_TAB_SETTLE_DELAY_IN_MS = 1000;
-const FAVICON_TAB_CONCURRENCY = 2;
 const MILLISECONDS_PER_SECOND = 1000;
 const FLARESOLVERR_MAX_CONCURRENT_REQUESTS = 2;
 const REQUEST_TIMEOUT_WATCHDOG_PREFIX = 'bookmarks-organizer-request-timeout-';
@@ -115,6 +114,12 @@ const bookmarksorganizer = {
 
   /** @type {Set<number>} */
   activeFaviconTabIds : new Set(),
+
+  /** @type {Set<string>} */
+  faviconDomainsWithIcons : new Set(),
+
+  /** @type {Map<string, Promise<void>>} */
+  faviconDomainLoads : new Map(),
 
   /** @type {?string} */
   faviconLoadingCheckId : null,
@@ -714,6 +719,8 @@ const bookmarksorganizer = {
     bookmarksorganizer.checkedBookmarks = 0;
     bookmarksorganizer.checkedBookmarkIds = new Set();
     bookmarksorganizer.activeBookmarkChecks = new Map();
+    bookmarksorganizer.faviconDomainsWithIcons.clear();
+    bookmarksorganizer.faviconDomainLoads.clear();
     bookmarksorganizer.directOnlyDomains = new Set();
     bookmarksorganizer.bookmarkErrors = 0;
     bookmarksorganizer.bookmarkWarnings = 0;
@@ -846,10 +853,6 @@ const bookmarksorganizer = {
     // eslint-disable-next-line require-atomic-updates
     bookmarksorganizer.lastRequestStartedAt = { direct : 0, flareSolverr : 0 };
 
-    if (bookmarksorganizer.loadFavicons) {
-      void bookmarksorganizer.loadBookmarkFavicons(bookmarksorganizer.collectedBookmarks, bookmarksorganizer.checkId);
-    }
-
     switch (mode) {
       case 'broken-bookmarks':
         await bookmarksorganizer.processBookmarks(mode, type);
@@ -904,57 +907,6 @@ const bookmarksorganizer = {
   },
 
   /**
-   * Loads bookmark pages in inactive tabs so Firefox can cache their favicons.
-   *
-   * @param {Array.<bookmarks.BookmarkTreeNode>} bookmarks - the bookmarks to visit
-   * @param {string} checkId - the current check identifier
-   *
-   * @returns {Promise<void>} - resolves after favicon loading has stopped
-   */
-  async loadBookmarkFavicons (bookmarks, checkId) {
-    const urls = [
-      ...new Set(
-        bookmarks
-          .filter((bookmark) => bookmark.url)
-          .map((bookmark) => bookmark.url)
-          .filter((url) => {
-            try {
-              const parsedUrl = new URL(url);
-
-              return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
-            }
-            catch (error) {
-              return false;
-            }
-          })
-      )
-    ];
-    let nextIndex = 0;
-
-    const worker = async () => {
-      while (!bookmarksorganizer.stopRequested && bookmarksorganizer.faviconLoadingCheckId === checkId) {
-        const url = urls[nextIndex++];
-        if (!url) {
-          return;
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        await bookmarksorganizer.loadBookmarkFavicon(url, checkId);
-      }
-    };
-
-    try {
-      await Promise.all(Array.from(
-        { length : Math.min(FAVICON_TAB_CONCURRENCY, urls.length) },
-        () => worker()
-      ));
-    }
-    catch (error) {
-      bookmarksorganizer.logFaviconLoadingError('Unable to load bookmark favicons', error);
-    }
-  },
-
-  /**
    * Opens and closes an inactive tab after its page has loaded or timed out.
    *
    * @param {string} url - the bookmark URL to visit
@@ -963,6 +915,67 @@ const bookmarksorganizer = {
    * @returns {Promise<void>} - resolves after the tab is closed
    */
   async loadBookmarkFavicon (url, checkId) {
+    let hostname = '';
+    try {
+      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    }
+    catch (error) {
+      return;
+    }
+
+    if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+      return;
+    }
+
+    let pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
+    if (pendingLoad) {
+      await pendingLoad;
+      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+        return;
+      }
+    }
+
+    if (await bookmarksorganizer.hasOpenTabWithFavicon(url)) {
+      return;
+    }
+
+    pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
+    if (pendingLoad) {
+      await pendingLoad;
+      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+        return;
+      }
+    }
+
+    const loadPromise = (async () => {
+      try {
+        await bookmarksorganizer.openBookmarkTabForFavicon(url, checkId);
+      }
+      catch (error) {
+        bookmarksorganizer.logFaviconLoadingError(`Unable to load favicon for ${url}`, error);
+        await bookmarksorganizer.closeActiveFaviconTabs();
+      }
+    })();
+    bookmarksorganizer.faviconDomainLoads.set(hostname, loadPromise);
+    try {
+      await loadPromise;
+    }
+    finally {
+      if (bookmarksorganizer.faviconDomainLoads.get(hostname) === loadPromise) {
+        bookmarksorganizer.faviconDomainLoads.delete(hostname);
+      }
+    }
+  },
+
+  /**
+   * Opens and closes an inactive tab after its page and favicon have loaded.
+   *
+   * @param {string} url - the bookmark URL to visit
+   * @param {string} checkId - the current check identifier
+   *
+   * @returns {Promise<void>} - resolves after the tab is closed
+   */
+  async openBookmarkTabForFavicon (url, checkId) {
     let tab = null;
     try {
       tab = await browser.tabs.create({ url : url, active : false });
@@ -1029,6 +1042,10 @@ const bookmarksorganizer = {
         }
       }
 
+      if (loadingStates.has('favicon')) {
+        bookmarksorganizer.rememberFaviconDomain(url);
+      }
+
       resolveLoading();
     };
     const maybeFinish = () => {
@@ -1083,6 +1100,73 @@ const bookmarksorganizer = {
     }
 
     await loadingFinished;
+  },
+
+  /**
+   * Checks whether Firefox already has a loaded favicon for this domain in an open tab.
+   *
+   * WebExtensions do not expose Firefox's complete favicon database, so this checks open tabs only.
+   *
+   * @param {string} url - the bookmark URL
+   *
+   * @returns {Promise<boolean>} - whether an open tab has a favicon for the same hostname
+   */
+  async hasOpenTabWithFavicon (url) {
+    let hostname = '';
+    try {
+      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    }
+    catch (error) {
+      return false;
+    }
+
+    if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+      return true;
+    }
+
+    try {
+      const tabs = await browser.tabs.query({});
+
+      const hasFavicon = tabs.some((tab) => {
+        if (!tab.url || !tab.favIconUrl || bookmarksorganizer.activeFaviconTabIds.has(tab.id)) {
+          return false;
+        }
+
+        try {
+          return new URL(tab.url).hostname.toLowerCase().replace(/^www\./, '') === hostname;
+        }
+        catch (error) {
+          return false;
+        }
+      });
+      if (hasFavicon) {
+        bookmarksorganizer.faviconDomainsWithIcons.add(hostname);
+      }
+
+      return hasFavicon;
+    }
+    catch (error) {
+      bookmarksorganizer.logFaviconLoadingError(`Unable to check open tabs for a cached favicon: ${url}`, error);
+
+      return false;
+    }
+  },
+
+  /**
+   * Remembers a domain after Firefox reports its favicon.
+   *
+   * @param {string} url - the page URL
+   *
+   * @returns {void}
+   */
+  rememberFaviconDomain (url) {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+      bookmarksorganizer.faviconDomainsWithIcons.add(hostname);
+    }
+    catch (error) {
+      // URLs are validated before a favicon-loading tab is opened.
+    }
   },
 
   /**
@@ -1166,12 +1250,14 @@ const bookmarksorganizer = {
       bookmarksorganizer.internalCounter++;
 
       if (bookmarksorganizer.USE_SKIP_LIST && bookmarksorganizer.ignoreForBrokenBookmarks.some((i) => new RegExp('\\b' + i + '\\b').test(bookmark.url))) {
+        await bookmarksorganizer.loadBookmarkFaviconForCheck(bookmark);
         bookmarksorganizer.markBookmarkChecked(bookmark);
 
         return;
       }
 
       if (bookmarksorganizer.whitelist.includes(bookmark.id)) {
+        await bookmarksorganizer.loadBookmarkFaviconForCheck(bookmark);
         bookmarksorganizer.markBookmarkChecked(bookmark);
 
         return;
@@ -1181,6 +1267,10 @@ const bookmarksorganizer = {
         bookmark.attempts = 0;
 
         const checkedBookmark = await bookmarksorganizer.checkHttpResponse(bookmark, 'HEAD');
+        if (bookmarksorganizer.checkFinalized) {
+          return;
+        }
+        await bookmarksorganizer.loadBookmarkFaviconForCheck(bookmark);
         if (bookmarksorganizer.checkFinalized) {
           return;
         }
@@ -1215,12 +1305,38 @@ const bookmarksorganizer = {
         bookmarksorganizer.updateProgressUi();
       }
       else {
+        await bookmarksorganizer.loadBookmarkFaviconForCheck(bookmark);
         bookmarksorganizer.markBookmarkChecked(bookmark);
         bookmarksorganizer.updateProgressUi();
       }
     }
     else {
       bookmarksorganizer.bookmarksResult.push(bookmark);
+    }
+  },
+
+  /**
+   * Loads a bookmark favicon, when enabled, before the bookmark is counted as checked.
+   *
+   * @param {bookmarks.BookmarkTreeNode} bookmark - the bookmark to process
+   *
+   * @returns {Promise<void>} - resolves after favicon loading has completed
+   */
+  async loadBookmarkFaviconForCheck (bookmark) {
+    if (!bookmarksorganizer.loadFavicons || bookmarksorganizer.stopRequested || !bookmark.url) {
+      return;
+    }
+
+    let parsedUrl = null;
+    try {
+      parsedUrl = new URL(bookmark.url);
+    }
+    catch (error) {
+      return;
+    }
+
+    if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+      await bookmarksorganizer.loadBookmarkFavicon(bookmark.url, bookmarksorganizer.checkId);
     }
   },
 
