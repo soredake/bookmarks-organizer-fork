@@ -16,6 +16,7 @@ const HTTP_TOO_MANY_REQUESTS_STATUS = 429;
 const HTTP_SERVICE_UNAVAILABLE_STATUS = 503;
 const DEFAULT_REQUEST_DELAY_IN_SECONDS = 1;
 const FAVICON_TAB_LOAD_TIMEOUT_IN_MS = 15000;
+const FAVICON_TAB_SETTLE_DELAY_IN_MS = 1000;
 const FAVICON_TAB_CONCURRENCY = 2;
 const MILLISECONDS_PER_SECOND = 1000;
 const FLARESOLVERR_MAX_CONCURRENT_REQUESTS = 2;
@@ -994,8 +995,16 @@ const bookmarksorganizer = {
 
     let resolveLoading = null;
     let timeoutId = null;
+    let faviconSettleTimeoutId = null;
     let onUpdated = null;
     let onRemoved = null;
+    const loadingStates = new Set();
+    if (tab.status === 'complete') {
+      loadingStates.add('page');
+    }
+    if (tab.favIconUrl) {
+      loadingStates.add('favicon');
+    }
     const loadingFinished = new Promise((resolve) => {
       resolveLoading = resolve;
     });
@@ -1006,6 +1015,7 @@ const bookmarksorganizer = {
       }
       finished = true;
       clearTimeout(timeoutId);
+      clearTimeout(faviconSettleTimeoutId);
       browser.tabs.onUpdated.removeListener(onUpdated);
       browser.tabs.onRemoved.removeListener(onRemoved);
       bookmarksorganizer.activeFaviconTabIds.delete(tabId);
@@ -1021,9 +1031,23 @@ const bookmarksorganizer = {
 
       resolveLoading();
     };
+    const maybeFinish = () => {
+      if (loadingStates.has('page') && loadingStates.has('favicon') && faviconSettleTimeoutId === null) {
+        faviconSettleTimeoutId = setTimeout(() => {
+          void cleanup();
+        }, FAVICON_TAB_SETTLE_DELAY_IN_MS);
+      }
+    };
     onUpdated = (updatedTabId, changeInfo) => {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        void cleanup();
+      if (updatedTabId === tabId) {
+        if (changeInfo.status === 'complete') {
+          loadingStates.add('page');
+        }
+        if (changeInfo.favIconUrl) {
+          loadingStates.add('favicon');
+        }
+
+        maybeFinish();
       }
     };
     onRemoved = (removedTabId) => {
@@ -1038,15 +1062,17 @@ const bookmarksorganizer = {
     browser.tabs.onUpdated.addListener(onUpdated);
     browser.tabs.onRemoved.addListener(onRemoved);
 
-    if (tab.status === 'complete') {
-      await cleanup();
-    }
-    else {
+    maybeFinish();
+    if (!loadingStates.has('page') || !loadingStates.has('favicon')) {
       try {
         const currentTab = await browser.tabs.get(tabId);
         if (currentTab.status === 'complete') {
-          await cleanup();
+          loadingStates.add('page');
         }
+        if (currentTab.favIconUrl) {
+          loadingStates.add('favicon');
+        }
+        maybeFinish();
       }
       catch (error) {
         if (!finished) {
