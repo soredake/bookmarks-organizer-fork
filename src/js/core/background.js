@@ -241,6 +241,29 @@ const bookmarksorganizer = {
   lastPartialResultsCount : -1,
 
   /**
+   * The last message sent to the UI script when a check finished. Used to restore the UI after the page was reloaded,
+   * for example after returning from the settings page.
+   *
+   * @type {?Object}
+   */
+  lastFinishedUiMessage : null,
+
+  /**
+   * The last progress message sent to the UI script during a running check. Used to restore the UI after the page was
+   * reloaded.
+   *
+   * @type {?Object}
+   */
+  lastProgressUiMessage : null,
+
+  /**
+   * The latest partial results sent to the UI script during a running check.
+   *
+   * @type {?Array.<bookmarks.BookmarkTreeNode>}
+   */
+  lastPartialBookmarks : null,
+
+  /**
    * Internal variable. The index of the bookmark being checked.
    *
    * @type {int}
@@ -726,6 +749,9 @@ const bookmarksorganizer = {
     bookmarksorganizer.bookmarkWarnings = 0;
     bookmarksorganizer.bookmarksResult = [];
     bookmarksorganizer.lastPartialResultsCount = -1;
+    bookmarksorganizer.lastFinishedUiMessage = null;
+    bookmarksorganizer.lastProgressUiMessage = null;
+    bookmarksorganizer.lastPartialBookmarks = null;
     bookmarksorganizer.additionalData = [];
     bookmarksorganizer.debug = [];
     bookmarksorganizer.flareSolverrJsonErrors = [];
@@ -2824,13 +2850,15 @@ const bookmarksorganizer = {
       }
     });
 
-    browser.runtime.sendMessage({
+    const duplicatesMessage = {
       message : 'show-duplicates-ui',
       bookmarks : duplicates,
       errors : bookmarksorganizer.bookmarkErrors,
       disableConfirmations : bookmarksorganizer.disableConfirmations,
       stopped : bookmarksorganizer.stopRequested
-    });
+    };
+    bookmarksorganizer.lastFinishedUiMessage = duplicatesMessage;
+    browser.runtime.sendMessage(duplicatesMessage);
 
     bookmarksorganizer.inProgress = false;
   },
@@ -2875,10 +2903,63 @@ const bookmarksorganizer = {
       const resultTree = bookmarksorganizer.buildResultArray(Array.from(resultsById.values()));
       const { children = [] } = resultTree[0] || {};
       progressMessage.partial_bookmarks = children;
+      bookmarksorganizer.lastPartialBookmarks = children;
       bookmarksorganizer.lastPartialResultsCount = bookmarksorganizer.bookmarksResult.length;
     }
 
+    bookmarksorganizer.lastProgressUiMessage = progressMessage;
     browser.runtime.sendMessage(progressMessage);
+  },
+
+  /**
+   * Fired when the UI script asks for the current state after the page was reloaded, for example after returning from
+   * the settings page. Only answers this specific message.
+   *
+   * @param {Object} response - contains the response from the UI script
+   *
+   * @returns {?Object} - the state to restore the UI with
+   */
+  onGetStateMessage (response) {
+    if (response && response.message === 'get-state') {
+      return bookmarksorganizer.getUiState();
+    }
+
+    // Other messages are handled by bookmarksorganizer.handleResponse.
+    // eslint-disable-next-line no-undefined
+    return undefined;
+  },
+
+  /**
+   * Collects the state which the UI script needs to restore a running or finished check after the page was reloaded.
+   *
+   * @returns {{started: ?Object, progress: ?Object, finished: ?Object}} - the messages to replay in the UI script
+   */
+  getUiState () {
+    let progress = null;
+
+    if (bookmarksorganizer.lastProgressUiMessage) {
+      progress = { ...bookmarksorganizer.lastProgressUiMessage };
+
+      if (Array.isArray(bookmarksorganizer.lastPartialBookmarks)) {
+        progress.partial_bookmarks = bookmarksorganizer.lastPartialBookmarks;
+      }
+    }
+
+    if (bookmarksorganizer.inProgress) {
+      return {
+        started : { message : 'started', checkId : bookmarksorganizer.checkId },
+        progress : progress,
+        finished : null
+      };
+    }
+
+    const finished = bookmarksorganizer.lastFinishedUiMessage;
+
+    return {
+      started : null,
+      progress : progress,
+      finished : finished ? { ...finished, checkId : null } : null
+    };
   },
 
   /**
@@ -2950,7 +3031,7 @@ const bookmarksorganizer = {
       }
     }
 
-    browser.runtime.sendMessage({
+    const finishedMessage = {
       message : 'finished',
       mode : mode,
       bookmarks : resultTree.length ? resultTree[0].children : [],
@@ -2963,7 +3044,10 @@ const bookmarksorganizer = {
       hasFlareSolverrJsonErrors : hasFlareSolverrJsonErrors,
       stopped : bookmarksorganizer.stopRequested,
       checkId : checkId
-    });
+    };
+    bookmarksorganizer.lastFinishedUiMessage = finishedMessage;
+    bookmarksorganizer.lastProgressUiMessage = null;
+    browser.runtime.sendMessage(finishedMessage);
 
     bookmarksorganizer.inProgress = false;
     bookmarksorganizer.checkId = null;
@@ -3029,6 +3113,7 @@ browser.omnibox.onInputChanged.addListener(bookmarksorganizer.showOmniboxSuggest
 browser.omnibox.onInputEntered.addListener(bookmarksorganizer.callOmniboxAction);
 browser.omnibox.setDefaultSuggestion({ description : browser.i18n.getMessage('omnibox_default_description') });
 browser.alarms.onAlarm.addListener((alarm) => bookmarksorganizer.handleFlareSolverrTimeoutAlarm(alarm));
+browser.runtime.onMessage.addListener(bookmarksorganizer.onGetStateMessage);
 browser.runtime.onMessage.addListener(bookmarksorganizer.handleResponse);
 browser.webRequest.onErrorOccurred.addListener(bookmarksorganizer.onDirectRequestNetworkError, {
   urls : ['<all_urls>']

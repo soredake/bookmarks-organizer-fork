@@ -131,21 +131,32 @@ const ui = {
   hasPermission : false,
 
   /**
+   * boolean, indicates whether a previous check state was restored from the background script
+   *
+   * @type {boolean}
+   */
+  hasRestoredState : false,
+
+  /**
    * Fired when the initial HTML document has been completely loaded and parsed. Checks the permission to access all
    * website data, counts the bookmarks and initializes the UI script.
    *
    * @returns {void}
    */
   async init () {
-    try {
-      await browser.storage.session.remove('bookmarksOrganizerFlareSolverrJsonErrors');
-    }
-    catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Unable to clear previous FlareSolverr JSON error details', error);
-    }
-
     await ui.setupPermission();
+
+    await ui.restoreState();
+
+    if (!ui.hasRestoredState) {
+      try {
+        await browser.storage.session.remove('bookmarksOrganizerFlareSolverrJsonErrors');
+      }
+      catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Unable to clear previous FlareSolverr JSON error details', error);
+      }
+    }
 
     ui.uiscript();
   },
@@ -171,6 +182,43 @@ const ui = {
         message : 'check-permission'
       });
     };
+  },
+
+  /**
+   * Restores the state of a running or finished check from the background script. This keeps the current check and
+   * its results when the user leaves the page, for example to open the settings and to come back with the back button.
+   *
+   * @returns {Promise<void>} - resolves after the state has been applied to the UI
+   */
+  async restoreState () {
+    let state = null;
+
+    try {
+      state = await browser.runtime.sendMessage({ message : 'get-state' });
+    }
+    catch (error) {
+      return;
+    }
+
+    if (!state || (!state.started && !state.progress && !state.finished)) {
+      return;
+    }
+
+    if (state.started) {
+      ui.handleResponse(state.started);
+      elMask.classList.remove('hidden');
+      elSpinner.classList.remove('hidden');
+    }
+
+    if (state.progress) {
+      ui.handleResponse(state.progress);
+    }
+
+    if (state.finished) {
+      ui.handleResponse(state.finished);
+    }
+
+    ui.hasRestoredState = true;
   },
 
   /**
@@ -273,10 +321,12 @@ const ui = {
       }
     };
 
-    setTimeout(() => {
-      elMask.classList.remove('hidden');
-      elSpinner.classList.remove('hidden');
-    }, DELAY_SPINNER_TIMEOUT);
+    if (!ui.hasRestoredState) {
+      setTimeout(() => {
+        elMask.classList.remove('hidden');
+        elSpinner.classList.remove('hidden');
+      }, DELAY_SPINNER_TIMEOUT);
+    }
   },
 
   /**
@@ -1275,7 +1325,7 @@ elShowFlareSolverrErrorsButton.addEventListener('click', () => {
 elSettingsButton.addEventListener('click', () => {
   const optionsUrl = new URL(browser.runtime.getURL('html/options.html'));
   optionsUrl.searchParams.set('returnTo', 'ui');
-  browser.tabs.create({ url : optionsUrl.href });
+  window.location.assign(optionsUrl.href);
 });
 
 browser.runtime.onMessage.addListener(ui.handleResponse);

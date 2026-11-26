@@ -106,20 +106,16 @@ const options = {
 
 document.addEventListener('DOMContentLoaded', options.load);
 
-elReturnBtn.addEventListener('click', async () => {
+elReturnBtn.addEventListener('click', () => {
   if (new URL(window.location.href).searchParams.get('returnTo') === 'ui') {
-    try {
-      const currentTab = await browser.tabs.getCurrent();
-      if (currentTab && Number.isInteger(currentTab.id)) {
-        await browser.tabs.remove(currentTab.id);
+    if (window.history.length > 1) {
+      window.history.back();
+    }
+    else {
+      window.location.replace('ui.html');
+    }
 
-        return;
-      }
-    }
-    catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Unable to close the settings tab', error);
-    }
+    return;
   }
 
   window.location.assign('ui.html');
