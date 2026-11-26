@@ -1004,6 +1004,72 @@ const bookmarksorganizer = {
    *
    * @returns {Promise<void>} - resolves after the tab is closed
    */
+  /**
+   * Loads a bookmark favicon by opening an inactive tab and waiting for its favicon to be available.
+   *
+   * Deduplication:
+   * - Skips URLs that are not HTTP(S).
+   * - Skips domains that already have a favicon cached (bookmarksorganizer.faviconDomainsWithIcons).
+   * - Waits for any in-flight favicon load for the same hostname (bookmarksorganizer.faviconDomainLoads).
+   * - Checks open tabs for an existing favicon for the hostname before opening a new tab.
+   *
+   * @param {string} url - the bookmark URL to load the favicon for
+   * @param {string} checkId - the current check identifier
+   *
+   * @returns {Promise<void>} - resolves after the favicon has been loaded or skipped
+   */
+  async loadBookmarkFavicon (url, checkId) {
+    let hostname = '';
+    try {
+      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    }
+    catch (error) {
+      return;
+    }
+
+    if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+      return;
+    }
+
+    let pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
+    if (pendingLoad) {
+      await pendingLoad;
+      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+        return;
+      }
+    }
+
+    if (await bookmarksorganizer.hasOpenTabWithFavicon(url)) {
+      return;
+    }
+
+    pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
+    if (pendingLoad) {
+      await pendingLoad;
+      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
+        return;
+      }
+    }
+
+    const loadPromise = (async () => {
+      try {
+        await bookmarksorganizer.openBookmarkTabForFavicon(url, checkId);
+      }
+      catch (error) {
+        bookmarksorganizer.logFaviconLoadingError(`Unable to load favicon for ${url}`, error);
+        await bookmarksorganizer.closeActiveFaviconTabs();
+      }
+    })();
+    bookmarksorganizer.faviconDomainLoads.set(hostname, loadPromise);
+    try {
+      await loadPromise;
+    }
+    finally {
+      if (bookmarksorganizer.faviconDomainLoads.get(hostname) === loadPromise) {
+        bookmarksorganizer.faviconDomainLoads.delete(hostname);
+      }
+    }
+  },
   async openBookmarkTabForFavicon (url, checkId) {
     let tab = null;
     try {
@@ -1450,13 +1516,13 @@ const bookmarksorganizer = {
           signal : signal
         });
 
-                  return {
-            response : directResponse,
-            challenge : await bookmarksorganizer.isCloudflareChallengeResponse(directResponse)
-          };
-        })(), controller, bookmarksorganizer.DIRECT_REQUEST_TIMEOUT_IN_MS, true);
-        resolve();
-        const shouldRememberCloudflareDomain =
+        return {
+          response : directResponse,
+          challenge : await bookmarksorganizer.isCloudflareChallengeResponse(directResponse)
+        };
+      })(), controller, bookmarksorganizer.DIRECT_REQUEST_TIMEOUT_IN_MS, true);
+      resolve();
+      const shouldRememberCloudflareDomain =
 
         bookmarksorganizer.useCloudflareDomainRouting &&
         bookmark.attempts === 1 &&
