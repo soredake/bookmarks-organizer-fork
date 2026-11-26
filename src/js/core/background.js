@@ -17,6 +17,7 @@ const HTTP_SERVICE_UNAVAILABLE_STATUS = 503;
 const DEFAULT_REQUEST_DELAY_IN_SECONDS = 1;
 const FAVICON_TAB_LOAD_TIMEOUT_IN_MS = 15000;
 const FAVICON_TAB_SETTLE_DELAY_IN_MS = 1000;
+const FAVICON_TAB_CONCURRENCY = 2;
 const MILLISECONDS_PER_SECOND = 1000;
 const FLARESOLVERR_MAX_CONCURRENT_REQUESTS = 2;
 const REQUEST_TIMEOUT_WATCHDOG_PREFIX = 'bookmarks-organizer-request-timeout-';
@@ -123,6 +124,12 @@ const bookmarksorganizer = {
 
   /** @type {?string} */
   faviconLoadingCheckId : null,
+
+  /** @type {number} */
+  faviconQueueIndex : 0,
+
+  /** @type {Array.<string>} */
+  faviconQueueUrls : [],
 
   /** @type {boolean} */
   shuffleUrls : false,
@@ -744,6 +751,8 @@ const bookmarksorganizer = {
     bookmarksorganizer.activeBookmarkChecks = new Map();
     bookmarksorganizer.faviconDomainsWithIcons.clear();
     bookmarksorganizer.faviconDomainLoads.clear();
+    bookmarksorganizer.faviconQueueIndex = 0;
+    bookmarksorganizer.faviconQueueUrls = [];
     bookmarksorganizer.directOnlyDomains = new Set();
     bookmarksorganizer.bookmarkErrors = 0;
     bookmarksorganizer.bookmarkWarnings = 0;
@@ -930,66 +939,60 @@ const bookmarksorganizer = {
     if (mode !== 'duplicates') {
       await bookmarksorganizer.finishCheck(mode);
     }
+
+    if (bookmarksorganizer.loadFavicons) {
+      void bookmarksorganizer.loadBookmarkFavicons(bookmarksorganizer.collectedBookmarks, bookmarksorganizer.checkId);
+    }
   },
 
   /**
-   * Opens and closes an inactive tab after its page has loaded or timed out.
+   * Loads bookmark pages in inactive tabs so Firefox can cache their favicons.
    *
-   * @param {string} url - the bookmark URL to visit
+   * @param {Array.<bookmarks.BookmarkTreeNode>} bookmarks - the bookmarks to visit
    * @param {string} checkId - the current check identifier
    *
-   * @returns {Promise<void>} - resolves after the tab is closed
+   * @returns {Promise<void>} - resolves after favicon loading has stopped
    */
-  async loadBookmarkFavicon (url, checkId) {
-    let hostname = '';
+  async loadBookmarkFavicons (bookmarks, checkId) {
+    const urls = [
+      ...new Set(
+        bookmarks
+          .filter((bookmark) => bookmark.url)
+          .map((bookmark) => bookmark.url)
+          .filter((url) => {
+            try {
+              const parsedUrl = new URL(url);
+
+              return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+            }
+            catch (error) {
+              return false;
+            }
+          })
+      )
+    ];
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (!bookmarksorganizer.stopRequested && bookmarksorganizer.faviconLoadingCheckId === checkId) {
+        const url = urls[nextIndex++];
+        if (!url) {
+          return;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await bookmarksorganizer.loadBookmarkFavicon(url, checkId);
+      }
+    };
+
     try {
-      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+      await Promise.all(Array.from(
+        { length : Math.min(FAVICON_TAB_CONCURRENCY, urls.length) },
+        () => worker()
+      ));
     }
     catch (error) {
-      return;
-    }
-
-    if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
-      return;
-    }
-
-    let pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
-    if (pendingLoad) {
-      await pendingLoad;
-      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
-        return;
-      }
-    }
-
-    if (await bookmarksorganizer.hasOpenTabWithFavicon(url)) {
-      return;
-    }
-
-    pendingLoad = bookmarksorganizer.faviconDomainLoads.get(hostname);
-    if (pendingLoad) {
-      await pendingLoad;
-      if (bookmarksorganizer.faviconDomainsWithIcons.has(hostname)) {
-        return;
-      }
-    }
-
-    const loadPromise = (async () => {
-      try {
-        await bookmarksorganizer.openBookmarkTabForFavicon(url, checkId);
-      }
-      catch (error) {
-        bookmarksorganizer.logFaviconLoadingError(`Unable to load favicon for ${url}`, error);
-        await bookmarksorganizer.closeActiveFaviconTabs();
-      }
-    })();
-    bookmarksorganizer.faviconDomainLoads.set(hostname, loadPromise);
-    try {
-      await loadPromise;
-    }
-    finally {
-      if (bookmarksorganizer.faviconDomainLoads.get(hostname) === loadPromise) {
-        bookmarksorganizer.faviconDomainLoads.delete(hostname);
-      }
+      bookmarksorganizer.logFaviconLoadingError('Unable to load bookmark favicons', error);
     }
   },
 
@@ -1447,12 +1450,14 @@ const bookmarksorganizer = {
           signal : signal
         });
 
-        return {
-          response : directResponse,
-          challenge : await bookmarksorganizer.isCloudflareChallengeResponse(directResponse)
-        };
-      })(), controller, bookmarksorganizer.DIRECT_REQUEST_TIMEOUT_IN_MS, true);
-      const shouldRememberCloudflareDomain =
+                  return {
+            response : directResponse,
+            challenge : await bookmarksorganizer.isCloudflareChallengeResponse(directResponse)
+          };
+        })(), controller, bookmarksorganizer.DIRECT_REQUEST_TIMEOUT_IN_MS, true);
+        resolve();
+        const shouldRememberCloudflareDomain =
+
         bookmarksorganizer.useCloudflareDomainRouting &&
         bookmark.attempts === 1 &&
         response.status === HTTP_FORBIDDEN_STATUS &&
