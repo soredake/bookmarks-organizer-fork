@@ -480,8 +480,11 @@ const ui = {
     }
     else if (response.message === 'total-bookmarks') {
       elTotalBookmarks.textContent = response.total_bookmarks;
-      elMask.classList.add('is-hidden');
-      elSpinner.classList.add('is-hidden');
+
+      if (ui.checkId === null) {
+        elMask.classList.add('is-hidden');
+        elSpinner.classList.add('is-hidden');
+      }
 
       if (response.total_bookmarks === 0) {
         elStart.classList.add('hidden');

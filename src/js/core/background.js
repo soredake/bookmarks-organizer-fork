@@ -580,9 +580,13 @@ const bookmarksorganizer = {
    *
    * @param {Object} response - contains the response from the UI script
    *
-   * @returns {void}
+   * @returns {Promise<void|Object>} - resolves with the UI state for a get-state request
    */
   async handleResponse (response) {
+    if (response.message === 'get-state') {
+      return bookmarksorganizer.getUiState();
+    }
+
     if (response.message === 'check-permission') {
       const granted = await browser.permissions.contains({ origins : ['<all_urls>'] });
       await bookmarksorganizer.initBookmarkCount();
@@ -667,6 +671,10 @@ const bookmarksorganizer = {
     else if (response.message === 'ignore') {
       bookmarksorganizer.addToWhitelist(response.bookmarkId);
     }
+
+    // Messages without a dedicated response resolve without a value.
+    // eslint-disable-next-line no-undefined
+    return undefined;
   },
 
   /**
@@ -2983,24 +2991,6 @@ const bookmarksorganizer = {
   },
 
   /**
-   * Fired when the UI script asks for the current state after the page was reloaded, for example after returning from
-   * the settings page. Only answers this specific message.
-   *
-   * @param {Object} response - contains the response from the UI script
-   *
-   * @returns {?Object} - the state to restore the UI with
-   */
-  onGetStateMessage (response) {
-    if (response && response.message === 'get-state') {
-      return bookmarksorganizer.getUiState();
-    }
-
-    // Other messages are handled by bookmarksorganizer.handleResponse.
-    // eslint-disable-next-line no-undefined
-    return undefined;
-  },
-
-  /**
    * Collects the state which the UI script needs to restore a running or finished check after the page was reloaded.
    *
    * @returns {{started: ?Object, progress: ?Object, finished: ?Object}} - the messages to replay in the UI script
@@ -3184,7 +3174,6 @@ browser.omnibox.onInputChanged.addListener(bookmarksorganizer.showOmniboxSuggest
 browser.omnibox.onInputEntered.addListener(bookmarksorganizer.callOmniboxAction);
 browser.omnibox.setDefaultSuggestion({ description : browser.i18n.getMessage('omnibox_default_description') });
 browser.alarms.onAlarm.addListener((alarm) => bookmarksorganizer.handleFlareSolverrTimeoutAlarm(alarm));
-browser.runtime.onMessage.addListener(bookmarksorganizer.onGetStateMessage);
 browser.runtime.onMessage.addListener(bookmarksorganizer.handleResponse);
 browser.webRequest.onErrorOccurred.addListener(bookmarksorganizer.onDirectRequestNetworkError, {
   urls : ['<all_urls>']
